@@ -132,15 +132,10 @@ it('id with null byte', function (): void {
 it('retry field', function (): void {
     $content = "retry: 10000\n".
               "\n";
-    $response = createResponse($content);
-    $events = iterator_to_array(new EventSource($response)->events());
+    $source = new EventSource(createResponse($content));
 
-    expect($events)
-        ->toHaveCount(1)
-        ->{0}->data->toBe('')
-        ->{0}->event->toBe('message')
-        ->{0}->id->toBe('')
-        ->{0}->retry->toBe(10_000);
+    expect(iterator_to_array($source->events()))->toBeEmpty()
+        ->and($source->getRetry())->toBe(10_000);
 });
 
 it('invalid retry field', function (): void {

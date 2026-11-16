@@ -2,5 +2,11 @@ includes:
   - vendor/hosmelq/php-coding-standard/config/phpstan-php.neon
 
 parameters:
+  ignoreErrors:
+    # The HTTP client validates request options, including custom handler options.
+    -
+      message: '#^Parameter \#3 \$options of method GuzzleHttp\\ClientInterface::request\(\) expects #'
+      path: src/Client.php
+      reportUnmatched: false
   paths:
     - src

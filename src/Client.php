@@ -5,26 +5,20 @@ declare(strict_types=1);
 namespace HosmelQ\SSE;
 
 use GuzzleHttp\Client as HttpClient;
-use Throwable;
+use GuzzleHttp\ClientInterface;
+use GuzzleHttp\Exception\TransferException;
+use InvalidArgumentException;
 
 readonly class Client
 {
-    /**
-     * The HTTP client used for requests.
-     */
-    private HttpClient $httpClient;
+    private ClientInterface $httpClient;
 
-    /**
-     * Create a new SSE client.
-     */
-    public function __construct(null|HttpClient $httpClient = null)
+    public function __construct(null|ClientInterface $httpClient = null)
     {
         $this->httpClient = $httpClient ?? new HttpClient();
     }
 
     /**
-     * Connect to an SSE endpoint using the specified HTTP method.
-     *
      * @param array<string, mixed> $options
      *
      * @throws SSEConnectionException
@@ -32,39 +26,49 @@ readonly class Client
      */
     public function connect(string $method, string $url, array $options = []): EventSource
     {
-        $optionsHeaders = $options['headers'] ?? [];
+        $headers = $options['headers'] ?? [];
 
-        if (! is_array($optionsHeaders)) {
-            $optionsHeaders = [];
+        if (! is_array($headers)) {
+            throw new InvalidArgumentException('headers must be an array or null');
         }
 
-        $headers = array_merge($optionsHeaders, [
-            'Accept' => 'text/event-stream',
-            'Cache-Control' => 'no-store',
-        ]);
-        $requestOptions = array_merge($options, [
-            'headers' => $headers,
-            'read_timeout' => $options['read_timeout'] ?? 10,
-            'stream' => true,
-            'timeout' => $options['timeout'] ?? 0,
-        ]);
+        $lastEventId = '';
+
+        foreach ($headers as $name => $value) {
+            if (! is_string($name)) {
+                continue;
+            }
+
+            $lowercaseName = mb_strtolower($name);
+
+            if (in_array($lowercaseName, ['accept', 'cache-control'], true)) {
+                unset($headers[$name]);
+            } elseif ($lowercaseName === 'last-event-id') {
+                $value = is_array($value) ? reset($value) : $value;
+
+                if (is_string($value) || is_int($value)) {
+                    $lastEventId = mb_trim((string) $value, " \t", '8bit');
+                }
+            }
+        }
+
+        $headers['Accept'] = 'text/event-stream';
+        $headers['Cache-Control'] = 'no-store';
+        $options['headers'] = $headers;
+        $options['stream'] = true;
+        $options['http_errors'] = false;
 
         try {
-            $response = $this->httpClient->request($method, $url, $requestOptions);
-        } catch (Throwable $throwable) {
-            throw SSEConnectionException::connectionFailed($url, $throwable);
+            $response = $this->httpClient->request($method, $url, $options);
+        } catch (TransferException $transferException) {
+            throw SSEConnectionException::connectionFailed($url, $transferException);
         }
 
-        return new EventSource($response);
+        return new EventSource($response, $lastEventId);
     }
 
     /**
-     * Connect to an SSE endpoint using GET method.
-     *
      * @param array<string, mixed> $options
-     *
-     * @throws SSEConnectionException
-     * @throws SSEProtocolException
      */
     public function get(string $url, array $options = []): EventSource
     {
@@ -72,12 +76,7 @@ readonly class Client
     }
 
     /**
-     * Connect to an SSE endpoint using POST method.
-     *
      * @param array<string, mixed> $options
-     *
-     * @throws SSEConnectionException
-     * @throws SSEProtocolException
      */
     public function post(string $url, array $options = []): EventSource
     {

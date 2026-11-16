@@ -4,6 +4,12 @@ declare(strict_types=1);
 
 namespace HosmelQ\SSE;
 
+use function Safe\preg_match;
+use function Safe\preg_replace;
+
+/**
+ * @internal
+ */
 class Decoder
 {
     /**
@@ -19,14 +25,27 @@ class Decoder
     private string $event = '';
 
     /**
-     * The last event ID received.
+     * The event ID the stream set, which becomes the last event ID when the event ends.
      */
-    private string $lastEventId = '';
+    private string $idBuffer;
 
     /**
-     * The current retry time in milliseconds.
+     * The reconnection time the stream set last, in milliseconds.
+     */
+    private null|int $reconnectionTime = null;
+
+    /**
+     * The reconnection time the current event set, in milliseconds.
      */
     private null|int $retry = null;
+
+    /**
+     * Create a decoder that resumes after the given event ID.
+     */
+    public function __construct(private string $lastEventId = '')
+    {
+        $this->idBuffer = $lastEventId;
+    }
 
     /**
      * Decode a line of SSE data.
@@ -41,18 +60,10 @@ class Decoder
             return null;
         }
 
-        $colonPos = mb_strpos($line, ':');
+        [$fieldName, $value] = array_pad(explode(':', $line, 2), 2, '');
 
-        if ($colonPos === false) {
-            $fieldName = $line;
-            $value = '';
-        } else {
-            $fieldName = mb_substr($line, 0, $colonPos);
-            $value = mb_substr($line, $colonPos + 1);
-
-            if (str_starts_with($value, ' ')) {
-                $value = mb_substr($value, 1);
-            }
+        if (str_starts_with($value, ' ')) {
+            $value = preg_replace('/\A /', '', $value);
         }
 
         switch ($fieldName) {
@@ -68,14 +79,15 @@ class Decoder
 
             case 'id':
                 if (! str_contains($value, "\0")) {
-                    $this->lastEventId = $value;
+                    $this->idBuffer = $value;
                 }
 
                 break;
 
             case 'retry':
-                if (is_numeric($value) && (int) $value >= 0) {
+                if (preg_match('/\A[0-9]+\z/', $value) === 1) {
                     $this->retry = (int) $value;
+                    $this->reconnectionTime = $this->retry;
                 }
 
                 break;
@@ -88,7 +100,7 @@ class Decoder
     }
 
     /**
-     * Get the last event ID that was received.
+     * Get the ID of the last event that ended.
      */
     public function getLastEventId(): string
     {
@@ -96,22 +108,28 @@ class Decoder
     }
 
     /**
-     * Dispatch the current event if any fields were set.
+     * Get the reconnection time the stream set last, in milliseconds.
+     */
+    public function getRetry(): null|int
+    {
+        return $this->reconnectionTime;
+    }
+
+    /**
+     * End the current event, and return it when it has data.
      */
     private function dispatchEvent(): null|ServerSentEvent
     {
-        if (
-            $this->data === []
-            && $this->event === ''
-            && $this->lastEventId === ''
-            && $this->retry === null
-        ) {
+        $this->lastEventId = $this->idBuffer;
+
+        if ($this->data === []) {
+            $this->reset();
+
             return null;
         }
 
-        $data = implode("\n", $this->data);
         $event = new ServerSentEvent(
-            data: $data,
+            data: implode("\n", $this->data),
             event: $this->event !== '' ? $this->event : null,
             id: $this->lastEventId,
             retry: $this->retry,

@@ -18,11 +18,16 @@
             "email": "hosmelq@gmail.com"
         }
     ],
+    "homepage": "https://hosmelq.com/docs/sse-php",
+    "support": {
+        "docs": "https://hosmelq.com/docs/sse-php"
+    },
     "require": {
         "php": "^8.4",
-        "guzzlehttp/guzzle": "^7.9",
-        "psr/http-message": "^1.0 || ^2.0",
-        "thecodingmachine/safe": "^3.3"
+        "guzzlehttp/guzzle": "^7.15.2 || ^8.5.0",
+        "guzzlehttp/psr7": "^2.13.0 || ^3.4.0",
+        "psr/http-message": "^1.1 || ^2.0",
+        "thecodingmachine/safe": "^3.4.0"
     },
     "require-dev": {
         "ergebnis/composer-normalize": "^2.57.0",

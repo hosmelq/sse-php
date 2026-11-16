@@ -5,71 +5,94 @@ declare(strict_types=1);
 namespace HosmelQ\SSE;
 
 use Generator;
-use GuzzleHttp\Psr7\Utils;
+use GuzzleHttp\Psr7\Stream;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\StreamInterface;
+use RuntimeException;
 
-readonly class EventSource
+class EventSource
 {
-    /**
-     * The response body stream.
-     */
-    private StreamInterface $body;
+    private const int CHUNK_SIZE = 8_192;
+
+    private readonly StreamInterface $body;
+
+    private bool $closed = false;
+
+    private bool $consumed = false;
+
+    private readonly Decoder $decoder;
+
+    private readonly bool $readsSocket;
 
     /**
-     * The SSE decoder for parsing events.
-     */
-    private Decoder $decoder;
-
-    /**
-     * Create a new event source from an HTTP response.
+     * Create an event source that resumes after the given event ID, the one the request sent in
+     * its Last-Event-ID header.
      *
      * @throws SSEProtocolException
      */
-    public function __construct(private ResponseInterface $response)
-    {
-        $this->decoder = new Decoder();
-        $this->body = $this->response->getBody();
+    public function __construct(
+        private readonly ResponseInterface $response,
+        string $lastEventId = '',
+    ) {
+        if ($response->getStatusCode() !== 200) {
+            throw SSEProtocolException::invalidStatus($response);
+        }
 
-        $this->checkContentType();
+        $contentType = $response->getHeaderLine('Content-Type');
+        $mediaType = mb_trim(explode(';', $contentType, 2)[0]);
+
+        if (! str_contains(mb_strtolower($mediaType), 'text/event-stream')) {
+            throw SSEProtocolException::invalidContentType($response);
+        }
+
+        $this->body = $response->getBody();
+        $this->decoder = new Decoder($lastEventId);
+        $streamType = $this->body->getMetadata('stream_type');
+        $this->readsSocket = $this->body instanceof Stream
+            && is_string($streamType)
+            && str_contains($streamType, 'socket');
     }
 
-    /**
-     * Destructor for automatic cleanup.
-     */
     public function __destruct()
     {
         $this->close();
     }
 
-    /**
-     * Close the event source and underlying stream.
-     */
     public function close(): void
     {
+        if ($this->closed) {
+            return;
+        }
+
+        $this->closed = true;
+
         $this->body->close();
     }
 
     /**
-     * Iterate over Server-Sent Events from the response with automatic cleanup.
-     *
-     * @return Generator<ServerSentEvent>
+     * @return Generator<int, ServerSentEvent>
      */
     public function events(): Generator
     {
-        try {
-            while (! $this->body->eof()) {
-                $line = Utils::readLine($this->body);
+        if ($this->consumed || $this->closed) {
+            throw new SSEException('The event stream has already been consumed or closed.');
+        }
 
-                if ($line === '') {
+        $this->consumed = true;
+        $lines = new LineSplitter();
+
+        try {
+            while (($chunk = $this->read()) !== null) {
+                if ($chunk === '') {
                     continue;
                 }
 
-                $line = mb_rtrim($line, "\r\n");
-                $event = $this->decoder->decode($line);
+                foreach ($lines->split($chunk) as $line) {
+                    $event = $this->decoder->decode($line);
 
-                if ($event instanceof ServerSentEvent) {
-                    yield $event;
+                    if ($event instanceof ServerSentEvent) {
+                        yield $event;
+                    }
                 }
             }
         } finally {
@@ -77,25 +100,59 @@ readonly class EventSource
         }
     }
 
-    /**
-     * Get the last event ID that was received.
-     */
     public function getLastEventId(): string
     {
         return $this->decoder->getLastEventId();
     }
 
-    /**
-     * Check that the response content type is text/event-stream.
-     *
-     * @throws SSEProtocolException
-     */
-    private function checkContentType(): void
+    public function getResponse(): ResponseInterface
     {
-        $contentType = $this->response->getHeaderLine('content-type');
+        return $this->response;
+    }
 
-        if (! str_contains($contentType, 'text/event-stream')) {
-            throw SSEProtocolException::invalidContentType($contentType);
+    /**
+     * Get the reconnection time the server sent last, in milliseconds.
+     */
+    public function getRetry(): null|int
+    {
+        return $this->decoder->getRetry();
+    }
+
+    private function read(): null|string
+    {
+        if ($this->closed) {
+            return null;
         }
+
+        try {
+            if ($this->body->eof()) {
+                return null;
+            }
+
+            return $this->readsSocket
+                ? $this->readAvailable()
+                : $this->body->read(self::CHUNK_SIZE);
+        } catch (RuntimeException $runtimeException) {
+            throw SSEConnectionException::readFailed($runtimeException);
+        }
+    }
+
+    /**
+     * Read what a PHP socket stream has available without waiting for more.
+     *
+     * PHP decodes chunked HTTP bodies through a stream filter, and a filtered read waits until it
+     * can return the requested length. A one-byte read returns as soon as data arrives, and the
+     * bytes PHP buffered along with it can then be read without waiting.
+     */
+    private function readAvailable(): string
+    {
+        $chunk = $this->body->read(1);
+        $unread = $this->body->getMetadata('unread_bytes');
+
+        if (is_int($unread) && $unread > 0) {
+            $chunk .= $this->body->read($unread);
+        }
+
+        return $chunk;
     }
 }
