@@ -17,7 +17,7 @@ readonly class Client
     /**
      * Create a new SSE client.
      */
-    public function __construct(?HttpClient $httpClient = null)
+    public function __construct(null|HttpClient $httpClient = null)
     {
         $this->httpClient = $httpClient ?? new HttpClient();
     }
@@ -42,7 +42,6 @@ readonly class Client
             'Accept' => 'text/event-stream',
             'Cache-Control' => 'no-store',
         ]);
-
         $requestOptions = array_merge($options, [
             'headers' => $headers,
             'read_timeout' => $options['read_timeout'] ?? 10,

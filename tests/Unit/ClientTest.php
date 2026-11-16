@@ -19,13 +19,13 @@ it('throws exception for connection failures', function (): void {
     $mockHandler = new MockHandler([
         new ConnectException(
             'Connection failed',
-            new Request('GET', 'https://example.com/sse')
+            new Request('GET', 'https://example.com/sse'),
         ),
     ]);
     $handlerStack = HandlerStack::create($mockHandler);
     $httpClient = new HttpClient(['handler' => $handlerStack]);
 
-    (new Client($httpClient))->get('https://example.com/sse');
+    new Client($httpClient)->get('https://example.com/sse');
 })->throws(SSEConnectionException::class, 'Failed to connect to SSE endpoint');
 
 it('throws exception for invalid content type', function (): void {
@@ -34,7 +34,6 @@ it('throws exception for invalid content type', function (): void {
     ]);
     $handlerStack = HandlerStack::create($mockHandler);
     $httpClient = new HttpClient(['handler' => $handlerStack]);
-
     $client = new Client($httpClient);
 
     $client->get('https://example.com/api');
@@ -46,7 +45,6 @@ it('connects with valid content type', function (): void {
     ]);
     $handlerStack = HandlerStack::create($mockHandler);
     $httpClient = new HttpClient(['handler' => $handlerStack]);
-
     $client = new Client($httpClient);
     $eventSource = $client->get('https://example.com/sse');
 
@@ -56,16 +54,16 @@ it('connects with valid content type', function (): void {
 it('sets correct SSE headers', function (): void {
     $container = [];
     $history = Middleware::history($container);
-
     $mockHandler = new MockHandler([
         new Response(200, ['Content-Type' => 'text/event-stream'], "data: test\n\n"),
     ]);
     $handlerStack = HandlerStack::create($mockHandler);
+
     $handlerStack->push($history);
 
     $httpClient = new HttpClient(['handler' => $handlerStack]);
 
-    (new Client($httpClient))->get('https://example.com/sse');
+    new Client($httpClient)->get('https://example.com/sse');
 
     $request = $container[0]['request'];
 
@@ -83,9 +81,8 @@ it('closes stream when iteration breaks early', function (): void {
     $response = new Response(
         200,
         ['content-type' => 'text/event-stream'],
-        new Stream($stream)
+        new Stream($stream),
     );
-
     $eventSource = new EventSource($response);
 
     foreach ($eventSource->events() as $event) {

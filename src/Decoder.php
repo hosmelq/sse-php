@@ -26,12 +26,12 @@ class Decoder
     /**
      * The current retry time in milliseconds.
      */
-    private ?int $retry = null;
+    private null|int $retry = null;
 
     /**
      * Decode a line of SSE data.
      */
-    public function decode(string $line): ?ServerSentEvent
+    public function decode(string $line): null|ServerSentEvent
     {
         if ($line === '') {
             return $this->dispatchEvent();
@@ -98,19 +98,23 @@ class Decoder
     /**
      * Dispatch the current event if any fields were set.
      */
-    private function dispatchEvent(): ?ServerSentEvent
+    private function dispatchEvent(): null|ServerSentEvent
     {
-        if ($this->data === [] && $this->event === '' && $this->lastEventId === '' && $this->retry === null) {
+        if (
+            $this->data === []
+            && $this->event === ''
+            && $this->lastEventId === ''
+            && $this->retry === null
+        ) {
             return null;
         }
 
         $data = implode("\n", $this->data);
-
         $event = new ServerSentEvent(
             data: $data,
             event: $this->event !== '' ? $this->event : null,
             id: $this->lastEventId,
-            retry: $this->retry
+            retry: $this->retry,
         );
 
         $this->reset();

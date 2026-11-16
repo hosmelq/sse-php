@@ -7,6 +7,7 @@ namespace HosmelQ\SSE;
 use function Safe\json_decode;
 
 use JsonSerializable;
+use Override;
 
 readonly class ServerSentEvent implements JsonSerializable
 {
@@ -29,10 +30,10 @@ readonly class ServerSentEvent implements JsonSerializable
      * Create a new server-sent event.
      */
     public function __construct(
-        ?string $data = null,
-        ?string $event = null,
-        ?string $id = null,
-        public ?int $retry = null
+        null|string $data = null,
+        null|string $event = null,
+        null|string $id = null,
+        public null|int $retry = null,
     ) {
         $this->data = $data ?? '';
         $this->event = $event !== null && $event !== '' ? $event : 'message';
@@ -52,6 +53,7 @@ readonly class ServerSentEvent implements JsonSerializable
      *
      * @return array{data: string, event: string, id: string, retry: null|int}
      */
+    #[Override]
     public function jsonSerialize(): array
     {
         return [

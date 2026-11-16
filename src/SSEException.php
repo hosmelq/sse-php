@@ -6,6 +6,4 @@ namespace HosmelQ\SSE;
 
 use Exception as BaseException;
 
-class SSEException extends BaseException
-{
-}
+class SSEException extends BaseException {}
